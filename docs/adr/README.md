@@ -31,6 +31,7 @@ L'application est disponible à l'adresse http://localhost:3000.
 | `pnpm typecheck` | Vérification des types (TypeScript) |
 | `pnpm test` | Exécution des tests (Vitest) |
 | `pnpm verify` | Ensemble des contrôles, à exécuter avant toute publication |
+| `pnpm db:generate --name <nom>` | Production d'une migration après la modification d'un fichier `schema.ts` |
 
 ## Architecture
 
@@ -54,6 +55,14 @@ Un module n'est accessible depuis l'extérieur que par ses entrées publiques : 
 | `realm` | Village : fondation, production de ressources, amélioration des bâtiments | `/api/realm` |
 | [0002](0002-event-sourcing-village.md) | Event Sourcing pour le Village | Accepté |
 
+## Base de données
+
+En développement, la base PostgreSQL est fournie par PGlite et conservée dans le répertoire
+`.data/`, exclu du dépôt. Les migrations du répertoire `drizzle/` y sont appliquées au
+démarrage. Pour repartir d'une base vide, arrêtez le serveur et supprimez le répertoire `.data/`.
+
+Les tests utilisent une base PGlite en mémoire, recréée pour chaque fichier de test.
+
 ## Documentation
 
 - [Décisions d'architecture](docs/adr/README.md)
@@ -64,8 +73,9 @@ Un module n'est accessible depuis l'extérieur que par ses entrées publiques : 
 - Messages de commit conformes à Conventional Commits.
 - `pnpm verify` doit réussir avant tout envoi sur la branche `main`.
 
+
 ## Limites actuelles
 
-Le projet est en cours de construction. Les données du Village sont conservées en mémoire
-et sont perdues à chaque redémarrage du serveur, et toutes les requêtes sont attribuées à
-un joueur unique. Ces limites sont recensées dans le registre de la dette technique.
+Le projet est en cours de construction. Toutes les requêtes sont attribuées à un joueur
+unique, en attendant l'authentification. Cette limite est recensée dans le registre de
+la dette technique.
