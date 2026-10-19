@@ -5,6 +5,8 @@ import type { AppEnv } from './types'
 export const DEMO_USER_ID = 'demo'
 
 /**
+ *  * DETTE TECHNIQUE DT-001 (docs/qualite/dette-technique.md) : à remplacer au TD4
+ * par un middleware qui identifie le joueur connecté.
  * Middleware provisoire : toutes les requêtes sont attribuées au même joueur.
  * DETTE TECHNIQUE (docs/qualite/dette-technique.md) : à remplacer au TD4
  * par un middleware qui identifie le joueur connecté.
