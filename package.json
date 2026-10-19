@@ -16,7 +16,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "pnpm lint && pnpm typecheck && pnpm lint:archi && pnpm test"
   },
   "dependencies": {
     "hono": "4.13.13",
