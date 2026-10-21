@@ -1,34 +1,165 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Royaumes
 
-## Getting Started
+Jeu web multijoueur servant de support au module Architecture et pilotage technique.
+Le projet est organisé en monolithe modulaire : une application Next.js unique, découpée
+en une plateforme technique et en modules métier aux frontières vérifiées automatiquement.
 
-First, run the development server:
+## Prérequis
+
+- Node.js 22 ou supérieur
+- pnpm 10
+
+## Démarrage
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+L'application est disponible à l'adresse http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Comptes et configuration
 
-## Learn More
+L'espace de jeu est réservé aux joueurs connectés. Créez un compte depuis la page
+http://localhost:3000/login.
 
-To learn more about Next.js, take a look at the following resources:
+Les variables d'environnement sont documentées dans le fichier `.env.example`. En local,
+aucune n'est obligatoire. Pour définir vos propres valeurs, copiez ce fichier en
+`.env.local`, qui n'est jamais versionné.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Commandes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Commande | Rôle |
+| --- | --- |
+| `pnpm dev` | Serveur de développement |
+| `pnpm build` | Construction de la version de production |
+| `pnpm start` | Serveur de production (après `pnpm build`) |
+| `pnpm lint` | Formatage et analyse statique (Biome), sans modification |
+| `pnpm lint:fix` | Application des corrections automatiques de Biome |
+| `pnpm lint:archi` | Vérification des règles d'architecture (dependency-cruiser) |
+| `pnpm typecheck` | Vérification des types (TypeScript) |
+| `pnpm test` | Exécution des tests (Vitest) |
+| `pnpm verify` | Ensemble des contrôles, à exécuter avant toute publication |
+| `pnpm db:generate --name <nom>` | Production d'une migration après la modification d'un fichier `schema.ts` |
+| `pnpm exec tsx scripts/simulate-dungeon.ts` | Mesure de l'équilibre du Donjon par la simulation d'expéditions |
+| `pnpm db:migrate` | Application des migrations à la base désignée par `DATABASE_URL_UNPOOLED` ou `DATABASE_URL` |
+| `pnpm vercel-build` | Construction exécutée par Vercel : contrôles, migrations, puis construction |
 
-## Deploy on Vercel
+## Architecture
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+app/                  Pages et route unique de l'API (Next.js)
+src/
+  platform/           Plateforme technique, générique
+  modules/            Modules métier, un répertoire par contexte délimité
+  bootstrap/          Racine de composition
+  ui/                 Thème et composants d'interface partagés
+scripts/              Scripts d'exploitation (migrations)
+drizzle/              Migrations de la base de données
+docs/
+  adr/                Décisions d'architecture
+  qualite/            Dette technique et revues
+  architecture.md     Description de l'architecture (modèle C4)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Un module n'est accessible depuis l'extérieur que par ses entrées publiques : `index.ts`
+(serveur), `contracts.ts` (types partagés) et `ui.tsx` (interface).
+
+| Module | Rôle | Adresse de l'API |
+| --- | --- | --- |
+| `system` | Route de santé | `/api/system` |
+| `realm` | Village : fondation, production de ressources, amélioration des bâtiments | `/api/realm` |
+| `dungeon` | Donjon : expéditions de un à quatre héros, compagnons pilotés par l'ordinateur, deux niveaux de difficulté, combats en manches simultanées | `/api/dungeon` |
+| `ranking` | Classement des joueurs, construit à partir des événements du Village et du Donjon | `/api/ranking` |
+| `market` | Marché : échanges de ressources entre joueurs, par une saga orchestrée | `/api/market` |
+
+## Temps réel
+
+Les changements sont diffusés aux navigateurs par des Server-Sent Events, à l'adresse
+`/api/stream/<canal>`. Chaque canal n'est accessible qu'aux joueurs connectés autorisés par
+la règle du module concerné. Le canal `village-<joueur>` n'est ainsi accessible qu'au
+propriétaire du village, et le canal `dungeon-<expédition>` aux seuls membres de l'expédition.
+
+La plupart des canaux correspondent à un flux du journal d'événements. Les canaux `ranking`
+et `market` sont des canaux globaux : ils suivent, dans tout le journal, les événements qui
+modifient le classement ou la liste des offres, et ne transmettent que ceux qui sont
+enregistrés après leur ouverture.
+
+Les canaux du Donjon, du Classement et du Marché sont discrets : ils ne transmettent que la position,
+le type et la version des événements, et chaque navigateur relit sa propre vue, filtrée
+par le serveur.
+
+Un flux se ferme de lui-même au bout de 240 secondes, et le navigateur s'y reconnecte
+sans perte d'événement. En développement, la variable `STREAM_MAX_SECONDS` permet de
+raccourcir cette durée pour observer la reconnexion.
+
+## Échanges entre modules
+
+Une opération qui modifie les données de plusieurs modules, comme un échange du Marché, est
+une saga (ADR 0007) : chaque étape est une transaction locale à un module, et les modules
+communiquent par des messages enregistrés dans la boîte d'envoi (`platform.outbox`), dans la
+même transaction que leurs événements. Les messages sont distribués après chaque commande et
+chaque consultation du Marché, et chaque jour par une tâche planifiée de Vercel. Leur livraison
+est garantie au moins une fois : les gestionnaires de messages sont idempotents.
+
+## Base de données
+
+En développement, la base PostgreSQL est fournie par PGlite et conservée dans le répertoire
+`.data/`, exclu du dépôt. Les migrations du répertoire `drizzle/` y sont appliquées au
+démarrage. Pour repartir d'une base vide, arrêtez le serveur et supprimez le répertoire `.data/`.
+
+Les tests utilisent une base PGlite en mémoire, recréée pour chaque fichier de test.
+
+Le classement et la liste des expéditions ouvertes sont des modèles de lecture, tenus à jour
+par des projections à partir du journal d'événements (ADR 0006). Chaque projection est
+rattrapée à la consultation, et reconstruite automatiquement lorsque sa version change :
+une modification qui change le contenu de ses tables doit donc augmenter sa version.
+
+En production, la base est hébergée par Neon. Les migrations y sont appliquées lors de
+chaque déploiement, après les contrôles et avant la construction de l'application.
+
+## Déploiement
+
+L'application est déployée sur Vercel, dans la région de Francfort ; son adresse est
+indiquée dans la rubrique « About » du dépôt GitHub. Chaque envoi sur la branche `main`
+déclenche un déploiement, qui n'aboutit que si `pnpm verify` réussit.
+
+Les variables `DATABASE_URL` et `DATABASE_URL_UNPOOLED` sont fournies par l'intégration
+Neon de Vercel. Les variables `BETTER_AUTH_SECRET` et `CRON_SECRET` sont définies dans les
+réglages du projet Vercel ; elles ne sont jamais versionnées. L'application refuse de démarrer
+sans la première ; sans la seconde, la route de la tâche planifiée reste fermée.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Décisions d'architecture](docs/adr/README.md)
+- [Registre de la dette technique](docs/qualite/dette-technique.md)
+- [Revue de sécurité de l'authentification](docs/qualite/revue-securite-authentification.md)
+- [Revue de sécurité du Donjon](docs/qualite/revue-securite-donjon.md)
+- [Revue de sécurité du Marché](docs/qualite/revue-securite-marche.md)
+
+## Conventions
+
+- Messages de commit conformes à Conventional Commits.
+- `pnpm verify` doit réussir avant tout envoi sur la branche `main`.
+
+## Limites actuelles
+
+Chaque flux temps réel relit le journal d'événements deux fois par seconde : la charge de
+la base croît avec le nombre de joueurs connectés. Ce compromis, acceptable pour le nombre
+de joueurs du projet, est décrit dans l'ADR 0003.
+
+Une échéance du Donjon, de manche ou d'exploration, n'est enregistrée qu'à la commande
+suivante d'un membre de l'expédition ; toute lecture l'affiche néanmoins comme passée
+(ADR 0004). Les expéditions de quatre joueurs restent faciles, même au niveau difficile :
+le script de simulation permet de le mesurer.
+
+Le classement et la liste des expéditions ouvertes peuvent présenter, pendant quelques
+secondes, un état qui ne tient pas encore compte des derniers événements. La reconstruction
+d'une projection a lieu pendant une consultation : sa durée croît avec la taille du journal
+(ADR 0006).
+
+Une offre échue n'est plus proposée ni acceptée, mais ses ressources ne sont restituées au
+vendeur qu'à la consultation suivante du Marché, ou au plus tard lors de la tâche planifiée
+quotidienne. Les autres limites connues, dont le traitement des messages abandonnés, sont
+recensées dans le registre de la dette technique.
